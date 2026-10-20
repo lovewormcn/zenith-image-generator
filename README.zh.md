@@ -135,6 +135,29 @@ curl -X POST https://your-project.pages.dev/v1/images/generations \
   - `ms/...` -> ModelScope（`Authorization: Bearer ms:...`）
   - 无前缀 -> HuggingFace（可选 token；`Authorization: Bearer <token>` 或 `Authorization: Bearer hf:<token>`）
 
+### 图片编辑
+
+`POST /v1/images/edits` 遵循 OpenAI 的 multipart 约定，现成的图片编辑客户端可直接使用：
+
+```bash
+curl -X POST https://your-project.pages.dev/v1/images/edits \
+  -H "Authorization: Bearer ms:your-modelscope-token" \
+  -F "model=ms/qwen-image-edit-2511" \
+  -F "prompt=转成柔和的水彩风格，保留排版" \
+  -F "image=@input.png"
+```
+
+也接受 JSON 请求体（`{"model":..., "prompt":..., "image":"data:image/png;base64,..."}`）。
+与其他端点一致，`model` 必须带 provider 前缀（`ms/...`）；不带前缀会回落到
+HuggingFace，在本接口会被拒绝。
+
+这里只暴露**已实测会真正读取输入图**的模型。部分 ModelScope 模型会接受 `image_url`
+却直接忽略，返回一张与原图无关的图——这类模型会被明确拒绝，而不是悄悄返回一张"假编辑"。
+当前可用：`ms/qwen-image-edit-2511`、`ms/qwen-image-edit-2509`、`ms/qwen-image-edit`。
+
+注意：Qwen 编辑模型可能把输出重新排版成与输入不同的画幅比例（实测 4:3 输入可能返回
+3:5 竖图）。如果构图必须保持不变，请在提示词里明确要求。
+
 ## 安全性
 
 ### API Key 如何被保护

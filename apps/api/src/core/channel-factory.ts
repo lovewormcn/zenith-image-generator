@@ -2,6 +2,7 @@ import type {
   Channel,
   ChannelConfig,
   ImageCapability,
+  ImageEditCapability,
   LLMCapability,
   VideoCapability,
 } from './types'
@@ -11,6 +12,7 @@ export function createChannel(input: {
   name: string
   config: ChannelConfig
   image?: ImageCapability
+  imageEdit?: ImageEditCapability
   llm?: LLMCapability
   video?: VideoCapability
 }): Channel {
@@ -19,6 +21,7 @@ export function createChannel(input: {
     name: input.name,
     config: input.config,
     ...(input.image && { image: input.image }),
+    ...(input.imageEdit && { imageEdit: input.imageEdit }),
     ...(input.llm && { llm: input.llm }),
     ...(input.video && { video: input.video }),
   }

@@ -190,5 +190,19 @@
   "language": {
     "switchTo": "EN",
     "current": "中文"
+  },
+  "edit": {
+    "title": "图片编辑",
+    "model": "编辑模型",
+    "modelPlaceholder": "选择编辑模型",
+    "sourceImage": "原图",
+    "uploadHint": "点击上传图片（PNG / JPG / WebP）",
+    "clear": "清除",
+    "instruction": "编辑指令",
+    "instructionPlaceholder": "描述你想如何修改这张图片，例如：转成水彩风格，保留排版",
+    "submit": "编辑图片",
+    "editing": "编辑中...",
+    "tabGenerate": "生成",
+    "tabEdit": "编辑"
   }
 }

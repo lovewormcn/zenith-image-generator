@@ -289,6 +289,43 @@ export function getModelsByProvider(provider: ProviderType): ModelConfig[] {
   return MODEL_CONFIGS.filter((m) => m.provider === provider)
 }
 
+/**
+ * Image-edit models (`POST /v1/images/edits`).
+ *
+ * Kept separate from `MODEL_CONFIGS` so they never appear in the text-to-image
+ * model picker. Only models verified to actually consume the input image
+ * belong here — several look-alikes silently ignore it and return an
+ * unrelated picture.
+ */
+export const IMAGE_EDIT_MODELS: ModelConfig[] = [
+  {
+    id: 'Qwen/Qwen-Image-Edit-2511',
+    name: 'Qwen Image Edit 2511',
+    provider: 'modelscope',
+    features: { negativePrompt: true, steps: { min: 1, max: 50, default: 4 }, seed: true },
+  },
+  {
+    id: 'Qwen/Qwen-Image-Edit-2509',
+    name: 'Qwen Image Edit 2509',
+    provider: 'modelscope',
+    features: { negativePrompt: true, steps: { min: 1, max: 50, default: 4 }, seed: true },
+  },
+  {
+    id: 'Qwen/Qwen-Image-Edit',
+    name: 'Qwen Image Edit',
+    provider: 'modelscope',
+    features: { negativePrompt: true, steps: { min: 1, max: 50, default: 4 }, seed: true },
+  },
+]
+
+/** Get image-edit models by provider */
+export function getImageEditModelsByProvider(provider: ProviderType): ModelConfig[] {
+  return IMAGE_EDIT_MODELS.filter((m) => m.provider === provider)
+}
+
+/** Default image-edit model (best-first ordering in `IMAGE_EDIT_MODELS`). */
+export const DEFAULT_IMAGE_EDIT_MODEL_ID = IMAGE_EDIT_MODELS[0].id
+
 /** Get model configuration by ID */
 export function getModelConfig(modelId: string): ModelConfig | undefined {
   return MODEL_CONFIGS.find((m) => m.id === modelId)

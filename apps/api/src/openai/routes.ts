@@ -1,6 +1,7 @@
 import { Errors, getModelsByProvider } from '@z-image/shared'
-import { Hono, type Context } from 'hono'
+import { type Context, Hono } from 'hono'
 import { ensureCustomChannelsInitialized, getChannel, getImageChannel } from '../channels'
+import { MODELSCOPE_EDIT_MODELS } from '../channels/modelscope/known-models'
 import { parseTokens, runWithTokenRotation } from '../core/token-manager'
 import { bodyLimit, rateLimitPresets, sendError, timeout } from '../middleware'
 import { convertRequest, convertResponse, parseBearerToken } from './adapter'
@@ -81,6 +82,17 @@ function listModels(): OpenAIModelsListResponse {
         if (id === 'MusePublic/489_ckpt_FLUX_1')
           entries.push({ id: 'ms/flux-1', owned_by: 'modelscope' })
         return entries.map((e) => ({ ...e, object: 'model' as const, created }))
+      }),
+      // Image-edit models (served by POST /v1/images/edits).
+      ...MODELSCOPE_EDIT_MODELS.flatMap((m) => {
+        const ids = [`ms/${m.id}`]
+        if (m.alias) ids.push(`ms/${m.alias}`)
+        return ids.map((id) => ({
+          id,
+          object: 'model' as const,
+          created,
+          owned_by: 'modelscope',
+        }))
       }),
       ...modelscopeGlobalModels.flatMap((id) => {
         const entries = [{ id: `msg/${id}`, owned_by: 'modelscope-global' }]

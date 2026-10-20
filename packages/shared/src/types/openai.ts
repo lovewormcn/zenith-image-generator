@@ -49,6 +49,20 @@ export interface OpenAIImageRequest {
   guidance_scale?: number
 }
 
+/**
+ * Image-edit request (`POST /v1/images/edits`, multipart/form-data).
+ *
+ * `image` accepts a Blob/File, a `data:` URL or bare base64; the API
+ * normalises whichever form it receives into a data URL for the upstream.
+ */
+export interface OpenAIImageEditRequest {
+  model?: string
+  prompt: string
+  image: Blob | string
+  n?: number
+  size?: string
+}
+
 export interface OpenAIImageResponse {
   created: number
   data: Array<{

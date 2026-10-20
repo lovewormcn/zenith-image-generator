@@ -190,5 +190,19 @@
   "language": {
     "switchTo": "中文",
     "current": "EN"
+  },
+  "edit": {
+    "title": "Image Edit",
+    "model": "Edit model",
+    "modelPlaceholder": "Choose an edit model",
+    "sourceImage": "Source image",
+    "uploadHint": "Click to upload an image (PNG / JPG / WebP)",
+    "clear": "Clear",
+    "instruction": "Edit instruction",
+    "instructionPlaceholder": "Describe how to change this image, e.g. turn it into a watercolor while keeping the layout",
+    "submit": "Edit image",
+    "editing": "Editing...",
+    "tabGenerate": "Generate",
+    "tabEdit": "Edit"
   }
 }

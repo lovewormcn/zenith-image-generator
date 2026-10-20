@@ -5,7 +5,9 @@
  */
 
 import {
+  DEFAULT_IMAGE_EDIT_MODEL_ID,
   DEFAULT_TRANSLATE_SYSTEM_PROMPT,
+  getImageEditModelsByProvider,
   getModelByProviderAndId,
   type ImageDetails,
   LLM_PROVIDER_CONFIGS,
@@ -58,6 +60,7 @@ export function useImageGenerator() {
     () => loadSettings().provider ?? 'huggingface'
   )
   const [model, setModel] = useState(() => loadSettings().model ?? 'z-image-turbo')
+  const [editModel, setEditModel] = useState(DEFAULT_IMAGE_EDIT_MODEL_ID)
   const [prompt, setPrompt] = useState(() => loadSettings().prompt ?? DEFAULT_PROMPT)
   const [negativePrompt, setNegativePrompt] = useState(
     () => loadSettings().negativePrompt ?? DEFAULT_NEGATIVE_PROMPT
@@ -114,6 +117,10 @@ export function useImageGenerator() {
   const availableModels = getModelsByProvider(provider)
 
   const selectedModelConfig = getModelByProviderAndId(provider, model)
+
+  // Image editing is only offered for providers with verified edit models.
+  const availableEditModels = getImageEditModelsByProvider(provider)
+  const supportsEdit = availableEditModels.length > 0
 
   useEffect(() => {
     if (!initialized.current) {
@@ -345,6 +352,112 @@ export function useImageGenerator() {
     }
   }
 
+  /**
+   * Edit an existing image via `POST /v1/images/edits`.
+   *
+   * `image` is a Blob/File from an upload or any `data:`/base64 string; the
+   * endpoint normalises it upstream. Only providers exposing an edit
+   * capability are accepted, which today means ModelScope.
+   */
+  const handleEdit = async (image: Blob | string, editPrompt: string) => {
+    const providerConfig = PROVIDER_CONFIGS[provider]
+    const providerTokens = parseTokens(currentToken)
+
+    if (providerConfig.requiresAuth && providerTokens.length === 0) {
+      toast.error(`Please configure your ${providerConfig.name} token first`)
+      return
+    }
+
+    if (!editPrompt.trim()) {
+      toast.error('Please describe how to edit the image')
+      return
+    }
+
+    setLoading(true)
+    setImageDetails(null)
+    setHistoryId(null)
+    setGeneratedAt(null)
+    setIsBlurred(false)
+    setShowInfo(false)
+    setStatus('Editing image...')
+
+    try {
+      addStatus(`Sending edit request to ${providerConfig.name}...`)
+      const start = Date.now()
+      const seed = Math.floor(Math.random() * 2147483647)
+      const editModelId = editModel || DEFAULT_IMAGE_EDIT_MODEL_ID
+
+      const rotated = await runWithTokenRotation(
+        provider,
+        providerTokens,
+        (t) =>
+          openai.editImage(
+            {
+              model: getFullImageModelId(provider, editModelId),
+              prompt: editPrompt,
+              image,
+              n: 1,
+            },
+            t ? buildImageTokenWithPrefix(provider, t) : undefined
+          ),
+        { allowAnonymous: !providerConfig.requiresAuth }
+      )
+
+      if (!rotated.success) throw new Error(rotated.error)
+
+      const url = rotated.data.data?.[0]?.url
+      if (!url) throw new Error('No image returned')
+
+      const durationMs = Date.now() - start
+      const duration = `${(durationMs / 1000).toFixed(1)}s`
+
+      const modelName =
+        getImageEditModelsByProvider(provider).find((m) => m.id === editModelId)?.name ||
+        editModelId
+      const details: ImageDetails = {
+        url,
+        provider: providerConfig.name,
+        model: modelName,
+        dimensions: 'source',
+        duration,
+        seed,
+        steps: 0,
+        prompt: editPrompt,
+        negativePrompt: '',
+      }
+
+      addStatus(`Image edited in ${duration}!`)
+
+      const now = Date.now()
+      const newHistoryId = saveToHistory({
+        url: details.url,
+        prompt: details.prompt,
+        negativePrompt: '',
+        providerId: provider,
+        providerName: details.provider,
+        modelId: editModelId,
+        modelName: details.model,
+        width,
+        height,
+        steps: 0,
+        seed: details.seed,
+        duration: details.duration,
+        source: 'home',
+      })
+
+      setHistoryId(newHistoryId)
+      setGeneratedAt(now)
+      setImageDetails({ ...details, historyId: newHistoryId, generatedAt: now })
+      toast.success('Image edited!')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'An error occurred'
+      addStatus(`Error: ${msg}`)
+      toast.error(msg)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   // LLM Settings handlers
   const updateLLMSettings = useCallback((updates: Partial<LLMSettings>) => {
     setLLMSettings((prev) => {
@@ -505,7 +618,7 @@ export function useImageGenerator() {
                   ? 'huggingface'
                   : llmProvider === 'deepseek'
                     ? 'deepseek'
-                  : null
+                    : null
 
         if (cfg?.needsAuth && tokens.length === 0) {
           throw new Error(`Please configure your ${cfg.name} token first`)
@@ -607,7 +720,7 @@ export function useImageGenerator() {
                   ? 'huggingface'
                   : llmProvider === 'deepseek'
                     ? 'deepseek'
-                  : null
+                    : null
 
         if (cfg?.needsAuth && tokens.length === 0) {
           throw new Error(`Please configure your ${cfg.name} token first`)
@@ -668,7 +781,10 @@ export function useImageGenerator() {
     currentToken,
     provider,
     model,
+    editModel,
     availableModels,
+    availableEditModels,
+    supportsEdit,
     prompt,
     negativePrompt,
     width,
@@ -689,6 +805,7 @@ export function useImageGenerator() {
     // Setters
     setProvider,
     setModel,
+    setEditModel,
     setPrompt,
     setNegativePrompt,
     setWidth,
@@ -712,6 +829,7 @@ export function useImageGenerator() {
     handleDownload,
     handleDelete,
     handleGenerate,
+    handleEdit,
     handleLoadFromHistory,
     historyId,
     generatedAt,

@@ -56,6 +56,25 @@ export interface ImageResult {
   model?: string
 }
 
+/**
+ * Instruction-driven image edit.
+ *
+ * `image` is a data URL (`data:image/png;base64,...`) built by the route
+ * layer, never a remote URL: ModelScope's upstream fetcher is frequently
+ * blocked (403) from third-party hosts, and data URLs sidestep that entirely.
+ */
+export interface ImageEditRequest {
+  prompt: string
+  image: string
+  model?: string
+  width?: number
+  height?: number
+  seed?: number
+  steps?: number
+  guidanceScale?: number
+  negativePrompt?: string
+}
+
 export interface LLMRequest {
   prompt: string
   systemPrompt: string
@@ -91,6 +110,15 @@ export interface ImageCapability {
   generate(request: ImageRequest, token?: string | null): Promise<ImageResult>
 }
 
+/**
+ * Image-editing capability, implemented only by channels that genuinely
+ * honour the input image (see `modelscope/known-models.ts` for the probes
+ * that established this — several "edit" models silently ignore `image_url`).
+ */
+export interface ImageEditCapability {
+  edit(request: ImageEditRequest, token?: string | null): Promise<ImageResult>
+}
+
 export interface LLMCapability {
   complete(request: LLMRequest, token?: string | null): Promise<LLMResult>
 }
@@ -105,6 +133,7 @@ export interface Channel {
   name: string
   config: ChannelConfig
   image?: ImageCapability
+  imageEdit?: ImageEditCapability
   llm?: LLMCapability
   video?: VideoCapability
 }

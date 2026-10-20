@@ -14,6 +14,7 @@ import {
   securityHeaders,
 } from './middleware'
 import './channels'
+import { registerOpenAIEditRoutes } from './openai/edit-routes'
 import { registerOpenAIRoutes } from './openai/routes'
 import { proxyRoutes } from './proxy/routes'
 
@@ -47,6 +48,7 @@ export function createApp(config: AppConfig = {}) {
 
   // OpenAI-compatible routes
   registerOpenAIRoutes(app)
+  registerOpenAIEditRoutes(app)
 
   return app
 }

@@ -130,6 +130,34 @@ Notes:
 
 📖 **[Full API Reference](./docs/en/API.md)** - Providers, parameters, code examples
 
+### Image Editing
+
+`POST /v1/images/edits` follows the OpenAI multipart contract, so existing
+image-edit clients work without changes:
+
+```bash
+curl -X POST https://your-project.pages.dev/v1/images/edits \
+  -H "Authorization: Bearer ms:your-modelscope-token" \
+  -F "model=ms/qwen-image-edit-2511" \
+  -F "prompt=turn this into a soft watercolor, keep the layout" \
+  -F "image=@input.png"
+```
+
+A JSON body (`{"model":..., "prompt":..., "image":"data:image/png;base64,..."}`)
+is accepted too. The `model` must carry the provider prefix (`ms/...`) like
+every other endpoint; a bare name falls back to HuggingFace and is rejected
+here.
+
+Only models verified to actually consume the input image are exposed here. Some
+ModelScope models accept an `image_url` field, ignore it and return an unrelated
+picture — they are deliberately rejected rather than silently producing a
+non-edit. Currently available: `ms/qwen-image-edit-2511`,
+`ms/qwen-image-edit-2509`, `ms/qwen-image-edit`.
+
+Note: the Qwen edit models may re-compose the output to a different aspect ratio
+than the input (e.g. a 4:3 source can come back as a 3:5 portrait), so ask for
+"keep the composition" explicitly if framing matters.
+
 ## Documentation
 
 | Doc                                       | Description                          |

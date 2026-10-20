@@ -2,6 +2,7 @@ import type {
   OpenAIChatRequest,
   OpenAIChatResponse,
   OpenAIErrorResponse,
+  OpenAIImageEditRequest,
   OpenAIImageRequest,
   OpenAIImageResponse,
   OpenAIModelInfo,
@@ -70,7 +71,9 @@ export class OpenAIClient {
 
   private async request<T>(path: string, init: RequestInit, token?: string): Promise<T> {
     const headers = new Headers(init.headers)
-    headers.set('Content-Type', 'application/json')
+    // FormData sets its own multipart boundary; a hard-coded JSON content type
+    // would make the backend parse the body as JSON and reject it.
+    if (!(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
     if (token) headers.set('Authorization', `Bearer ${token}`)
 
     const res = await fetch(`${this.baseURL}${path}`, { ...init, headers })
@@ -82,6 +85,29 @@ export class OpenAIClient {
     return this.request<OpenAIImageResponse>(
       '/v1/images/generations',
       { method: 'POST', body: JSON.stringify(request) },
+      token
+    )
+  }
+
+  /** Edit an existing image (OpenAI-compatible `POST /v1/images/edits`). */
+  async editImage(request: OpenAIImageEditRequest, token?: string): Promise<OpenAIImageResponse> {
+    const form = new FormData()
+    form.set('prompt', request.prompt)
+    if (request.model) form.set('model', request.model)
+    if (request.size) form.set('size', request.size)
+    if (request.n !== undefined) form.set('n', String(request.n))
+
+    // The backend normalises a Blob, a data URL or a raw base64 string, so
+    // passing whichever form the caller has avoids re-encoding here.
+    if (request.image instanceof Blob) {
+      form.set('image', request.image, 'image.png')
+    } else {
+      form.set('image', request.image)
+    }
+
+    return this.request<OpenAIImageResponse>(
+      '/v1/images/edits',
+      { method: 'POST', body: form },
       token
     )
   }
