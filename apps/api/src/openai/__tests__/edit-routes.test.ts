@@ -7,6 +7,7 @@ import { ApiErrorCode } from '@z-image/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../../app'
 import { modelscopeConfig } from '../../channels/modelscope/config'
+import { modelscopeGlobalConfig } from '../../channels/modelscope-global/config'
 import { resolveModel } from '../model-resolver'
 
 const TINY_PNG_BASE64 =
@@ -458,3 +459,96 @@ describe('resolveModel: provider prefixes are the routing contract', () => {
   })
 })
 
+describe('ModelScope Global as an edit fallback', () => {
+  const app = createApp()
+  let seq = 0
+  let auth = ''
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+    seq += 1
+    auth = `Bearer msg:global-token-${seq}`
+    if (modelscopeGlobalConfig.asyncMode) {
+      modelscopeGlobalConfig.asyncMode.pollIntervalMs = 0
+      modelscopeGlobalConfig.asyncMode.maxPollAttempts = 3
+    }
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it.each([
+    ['msg/qwen-image-edit'],
+    ['msg/Qwen/Qwen-Image-Edit'],
+    ['msg/muse-qwen-image-edit'],
+  ])('edits through %s', async (model) => {
+    const mockFetch = vi.mocked(fetch)
+    mockUpstreamSuccess(mockFetch)
+
+    const res = await app.request('/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, prompt: 'make it watercolour', image: TINY_PNG_BASE64 }),
+    })
+
+    expect(res.status).toBe(200)
+    const json = (await res.json()) as { data: Array<{ url: string }> }
+    expect(json.data[0]?.url).toBe('https://example.com/edited.png')
+  })
+
+  // The global host does not carry the FLUX family at all; resolving those
+  // aliases there would send a request that always 400s.
+  it('does not inherit the domestic alias map', () => {
+    expect(resolveModel('msg/flux-2')).toEqual({ provider: 'modelscope-global', model: 'flux-2' })
+    expect(resolveModel('msg/z-image-turbo')).toEqual({
+      provider: 'modelscope-global',
+      model: 'Tongyi-MAI/Z-Image-Turbo',
+    })
+    expect(resolveModel('msg/qwen-image-2512')).toEqual({
+      provider: 'modelscope-global',
+      model: 'Qwen/Qwen-Image-2512',
+    })
+  })
+
+  it('rejects a global text-to-image model', async () => {
+    const res = await app.request('/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'msg/z-image-turbo',
+        prompt: 'make it watercolour',
+        image: TINY_PNG_BASE64,
+      }),
+    })
+
+    expect(res.status).toBe(400)
+    const json = (await res.json()) as { error: { code: string } }
+    expect(json.error.code).toBe(ApiErrorCode.INVALID_MODEL)
+  })
+
+  it('rejects a domestic token against a global model', async () => {
+    const res = await app.request('/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ms:some-token-123', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'msg/qwen-image-edit',
+        prompt: 'make it watercolour',
+        image: TINY_PNG_BASE64,
+      }),
+    })
+
+    expect(res.status).toBe(400)
+  })
+
+  it('lists the global edit models', async () => {
+    const res = await app.request('/v1/models')
+    const json = (await res.json()) as { data: Array<{ id: string }> }
+    const ids = json.data.map((m) => m.id)
+    expect(ids).toContain('msg/qwen-image-edit')
+    expect(ids).toContain('msg/muse-qwen-image-edit')
+    // Aliases for models the global host does not serve must be gone.
+    expect(ids).not.toContain('msg/flux-2')
+    expect(ids).not.toContain('msg/flux-1-krea-dev')
+  })
+})

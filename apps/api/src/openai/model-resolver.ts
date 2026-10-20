@@ -4,6 +4,10 @@ import {
   MODELSCOPE_EDIT_MODELS,
   MODELSCOPE_T2I_MODELS,
 } from '../channels/modelscope/known-models'
+import {
+  MODELSCOPE_GLOBAL_EDIT_MODELS,
+  MODELSCOPE_GLOBAL_T2I_MODELS,
+} from '../channels/modelscope-global/known-models'
 
 interface ResolvedModel {
   provider: ProviderType
@@ -27,8 +31,13 @@ const MODELSCOPE_MODEL_ALIASES: Record<string, string> = {
   ...buildAliasMap(MODELSCOPE_EDIT_MODELS),
 }
 
-// ModelScope Global uses the same model aliases as ModelScope
-const MODELSCOPE_GLOBAL_MODEL_ALIASES: Record<string, string> = { ...MODELSCOPE_MODEL_ALIASES }
+// The global host has its own, much smaller model set — the FLUX ids present
+// domestically do not exist there (`Model not exists model id`), so it must
+// not inherit the domestic alias map.
+const MODELSCOPE_GLOBAL_MODEL_ALIASES: Record<string, string> = {
+  ...buildAliasMap(MODELSCOPE_GLOBAL_T2I_MODELS),
+  ...buildAliasMap(MODELSCOPE_GLOBAL_EDIT_MODELS),
+}
 
 /**
  * Resolve a requested model into a provider + upstream model id.

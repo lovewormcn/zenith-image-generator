@@ -249,39 +249,6 @@ export const MODEL_CONFIGS: ModelConfig[] = [
       seed: true,
     },
   },
-  {
-    id: 'black-forest-labs/FLUX.2-dev',
-    name: 'FLUX.2',
-    provider: 'modelscope-global',
-    features: {
-      negativePrompt: true,
-      steps: { min: 1, max: 50, default: 24 },
-      guidanceScale: { min: 1, max: 10, default: 3.5 },
-      seed: true,
-    },
-  },
-  {
-    id: 'black-forest-labs/FLUX.1-Krea-dev',
-    name: 'FLUX.1 Krea',
-    provider: 'modelscope-global',
-    features: {
-      negativePrompt: true,
-      steps: { min: 1, max: 50, default: 24 },
-      guidanceScale: { min: 1, max: 20, default: 3.5 },
-      seed: true,
-    },
-  },
-  {
-    id: 'MusePublic/489_ckpt_FLUX_1',
-    name: 'FLUX.1',
-    provider: 'modelscope-global',
-    features: {
-      negativePrompt: true,
-      steps: { min: 1, max: 50, default: 24 },
-      guidanceScale: { min: 1, max: 20, default: 3.5 },
-      seed: true,
-    },
-  },
 ]
 
 /** Get models by provider */
@@ -314,6 +281,22 @@ export const IMAGE_EDIT_MODELS: ModelConfig[] = [
     id: 'Qwen/Qwen-Image-Edit',
     name: 'Qwen Image Edit',
     provider: 'modelscope',
+    features: { negativePrompt: true, steps: { min: 1, max: 50, default: 4 }, seed: true },
+  },
+  // Global-endpoint fallback. Same id as the domestic one above but a
+  // different upstream: the domestic copy is the real editor, this one is
+  // kept only so an `msg/` call still has an escape hatch. Quality is lower
+  // (tends to blow out to near-white) and it is slower (~150s).
+  {
+    id: 'Qwen/Qwen-Image-Edit',
+    name: 'Qwen Image Edit (Global)',
+    provider: 'modelscope-global',
+    features: { negativePrompt: true, steps: { min: 1, max: 50, default: 4 }, seed: true },
+  },
+  {
+    id: 'MusePublic/Qwen-Image-Edit',
+    name: 'MusePublic Qwen Image Edit (Global)',
+    provider: 'modelscope-global',
     features: { negativePrompt: true, steps: { min: 1, max: 50, default: 4 }, seed: true },
   },
 ]

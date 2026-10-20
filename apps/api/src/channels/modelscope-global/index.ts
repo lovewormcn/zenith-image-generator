@@ -1,6 +1,7 @@
 import { createChannel } from '../../core/channel-factory'
 import type { Channel } from '../../core/types'
 import { modelscopeGlobalConfig } from './config'
+import { modelscopeGlobalEdit } from './edit'
 import { modelscopeGlobalImage } from './image'
 import { modelscopeGlobalLLM } from './llm'
 
@@ -9,5 +10,6 @@ export const modelscopeGlobalChannel: Channel = createChannel({
   name: 'ModelScope Global',
   config: modelscopeGlobalConfig,
   image: modelscopeGlobalImage,
+  imageEdit: modelscopeGlobalEdit,
   llm: modelscopeGlobalLLM,
 })

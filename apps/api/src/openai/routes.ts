@@ -2,6 +2,10 @@ import { Errors, getModelsByProvider } from '@z-image/shared'
 import { type Context, Hono } from 'hono'
 import { ensureCustomChannelsInitialized, getChannel, getImageChannel } from '../channels'
 import { MODELSCOPE_EDIT_MODELS } from '../channels/modelscope/known-models'
+import {
+  MODELSCOPE_GLOBAL_EDIT_MODELS,
+  MODELSCOPE_GLOBAL_T2I_MODELS,
+} from '../channels/modelscope-global/known-models'
 import { parseTokens, runWithTokenRotation } from '../core/token-manager'
 import { bodyLimit, rateLimitPresets, sendError, timeout } from '../middleware'
 import { convertRequest, convertResponse, parseBearerToken } from './adapter'
@@ -96,15 +100,20 @@ function listModels(): OpenAIModelsListResponse {
       }),
       ...modelscopeGlobalModels.flatMap((id) => {
         const entries = [{ id: `msg/${id}`, owned_by: 'modelscope-global' }]
-        if (id === 'Tongyi-MAI/Z-Image-Turbo')
-          entries.push({ id: 'msg/z-image-turbo', owned_by: 'modelscope-global' })
-        if (id === 'black-forest-labs/FLUX.2-dev')
-          entries.push({ id: 'msg/flux-2', owned_by: 'modelscope-global' })
-        if (id === 'black-forest-labs/FLUX.1-Krea-dev')
-          entries.push({ id: 'msg/flux-1-krea-dev', owned_by: 'modelscope-global' })
-        if (id === 'MusePublic/489_ckpt_FLUX_1')
-          entries.push({ id: 'msg/flux-1', owned_by: 'modelscope-global' })
+        const alias = MODELSCOPE_GLOBAL_T2I_MODELS.find((m) => m.id === id)?.alias
+        if (alias) entries.push({ id: `msg/${alias}`, owned_by: 'modelscope-global' })
         return entries.map((e) => ({ ...e, object: 'model' as const, created }))
+      }),
+      // Global-endpoint edit models (fallback path; see known-models.ts).
+      ...MODELSCOPE_GLOBAL_EDIT_MODELS.flatMap((m) => {
+        const ids = [`msg/${m.id}`]
+        if (m.alias) ids.push(`msg/${m.alias}`)
+        return ids.map((id) => ({
+          id,
+          object: 'model' as const,
+          created,
+          owned_by: 'modelscope-global',
+        }))
       }),
       ...a4fModels.map((id) => ({
         id: `a4f/${id}`,

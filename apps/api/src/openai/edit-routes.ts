@@ -17,6 +17,7 @@ import {
   MODELSCOPE_DEFAULT_EDIT_MODEL,
   MODELSCOPE_EDIT_MODELS,
 } from '../channels/modelscope/known-models'
+import { MODELSCOPE_GLOBAL_EDIT_MODELS } from '../channels/modelscope-global/known-models'
 import { parseTokens, runWithTokenRotation } from '../core/token-manager'
 import { bodyLimit, rateLimitPresets, sendError, timeout } from '../middleware'
 import { convertResponse, parseBearerToken, parseSize } from './adapter'
@@ -74,7 +75,7 @@ function stringField(value: unknown): string | undefined {
  * dsh-image-gen's `jsonImageUrlArray` format sends). The primary image always
  * comes first, matching `image` then each extra.
  */
-function collectExtraImages(body: Record<string, unknown>, primary?: string): string[] {
+function collectExtraImages(body: Record<string, unknown>): string[] {
   const candidates: unknown[] = [body.images, body['images[]'], body.image_2, body.image2]
   const fromList = candidates.flatMap((v) => (Array.isArray(v) ? v : [v]))
   const extras: string[] = []
@@ -174,9 +175,7 @@ function readJson(body: Record<string, unknown>): EditFields {
   // Extras come before `ordered` is split so `images`-only callers (such as
   // dsh-image-gen's jsonImageUrlArray) still yield a primary image.
   const extras = collectExtraImages(body)
-  const ordered = [...imageList.map(imageEntry), ...extras].filter(
-    (v): v is string => Boolean(v)
-  )
+  const ordered = [...imageList.map(imageEntry), ...extras].filter((v): v is string => Boolean(v))
   const primary = ordered[0]
   return {
     prompt: stringField(body.prompt),
@@ -198,10 +197,16 @@ function readJson(body: Record<string, unknown>): EditFields {
  * picture, which is exactly the failure mode the catalogue guards against.
  */
 function assertEditCapable(resolved: { provider: string; model: string }): void {
-  if (resolved.provider !== 'modelscope') {
+  const editCatalogue =
+    resolved.provider === 'modelscope'
+      ? MODELSCOPE_EDIT_MODELS
+      : resolved.provider === 'modelscope-global'
+        ? MODELSCOPE_GLOBAL_EDIT_MODELS
+        : null
+  if (!editCatalogue) {
     throw Errors.invalidModel(resolved.model, resolved.provider)
   }
-  const known = MODELSCOPE_EDIT_MODELS.some((m) => m.id === resolved.model)
+  const known = editCatalogue.some((m) => m.id === resolved.model)
   const looksLikeEditModel = /image-edit/i.test(resolved.model)
   if (!known && !looksLikeEditModel) {
     throw Errors.invalidModel(resolved.model, resolved.provider)
