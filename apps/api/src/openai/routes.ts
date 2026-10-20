@@ -119,8 +119,12 @@ function listModels(): OpenAIModelsListResponse {
 export function registerOpenAIRoutes(app: Hono) {
   const v1 = new Hono().basePath('/v1')
 
-  // Base middleware for all /v1 routes.
-  v1.use('/*', timeout(120000))
+  // Scoped to this module's paths on purpose: a blanket `/*` mount here is
+  // evaluated before the separately-registered edits sub-app and would cap
+  // edits at 120s, which is below their real render time.
+  v1.use('/models', timeout(120000))
+  v1.use('/images/generations', timeout(120000))
+  v1.use('/chat/completions', timeout(120000))
 
   v1.post('/images/generations', bodyLimit(50 * 1024), rateLimitPresets.generate, async (c) => {
     ensureCustomChannelsInitialized(

@@ -65,7 +65,13 @@ export interface ImageResult {
  */
 export interface ImageEditRequest {
   prompt: string
+  /** Primary input image (data URL). */
   image: string
+  /**
+   * Extra input images for multi-image fusion (data URLs). The upstream edit
+   * models take an ordered list, so `[image, ...images]` is sent in order.
+   */
+  images?: string[]
   model?: string
   width?: number
   height?: number

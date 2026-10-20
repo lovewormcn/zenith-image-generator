@@ -18,10 +18,14 @@ export const modelscopeEdit: ImageEditCapability = {
 
     const model = request.model || DEFAULT_EDIT_MODEL
     const seed = request.seed ?? Math.floor(Math.random() * 2147483647)
+    // Multi-image fusion: the upstream accepts an ordered `image_url` array.
+    // A single image is still sent as a bare string, which is the shape the
+    // single-image path has always used.
+    const allImages = [request.image, ...(request.images ?? [])].filter(Boolean)
     const body: Record<string, unknown> = {
       prompt: request.prompt,
       model,
-      image_url: request.image,
+      image_url: allImages.length > 1 ? allImages : request.image,
       seed,
     }
 
@@ -35,7 +39,8 @@ export const modelscopeEdit: ImageEditCapability = {
     if (request.guidanceScale !== undefined) body.guidance = request.guidanceScale
 
     const taskId = await submitTask(t, body)
-    const imageUrl = await pollForResult(t, taskId)
+    // 60 x 3s = 180s budget, inside the edit route's 240s timeout.
+    const imageUrl = await pollForResult(t, taskId, 60)
     return { url: imageUrl, seed, model }
   },
 }

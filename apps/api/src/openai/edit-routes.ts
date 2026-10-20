@@ -31,6 +31,8 @@ interface EditFields {
   model?: string
   size?: string
   image?: string
+  /** Extra fusion images, in order after `image`. */
+  imageExtras?: string[]
   seed?: number
   steps?: number
   negativePrompt?: string
@@ -63,37 +65,119 @@ function stringField(value: unknown): string | undefined {
   return s ? s : undefined
 }
 
-/** Parse a multipart edit request into plain fields. */
+/**
+ * Normalize the many ways clients spell "more than one input image".
+ *
+ * OpenAI's own edits API is single-image, but multi-image fusion is a real
+ * capability of the Qwen edit models, so we accept the common shapes:
+ * `images` / `images[]` as strings, or as `{ image_url }` objects (the shape
+ * dsh-image-gen's `jsonImageUrlArray` format sends). The primary image always
+ * comes first, matching `image` then each extra.
+ */
+function collectExtraImages(body: Record<string, unknown>, primary?: string): string[] {
+  const candidates: unknown[] = [body.images, body['images[]'], body.image_2, body.image2]
+  const fromList = candidates.flatMap((v) => (Array.isArray(v) ? v : [v]))
+  const extras: string[] = []
+  for (const value of fromList) {
+    const s = imageEntry(value)
+    // Dedupe by identity only, never by content: the same image legitimately
+    // appears twice when a caller passes it as both primary and material.
+    if (s) extras.push(s)
+  }
+  return extras
+}
+
+/** Accept `"data:..."`, `{ image_url }`, `{ url }`, or `{ b64_json }` entries. */
+function imageEntry(value: unknown): string | undefined {
+  const direct = stringField(value)
+  if (direct) return direct
+  if (value && typeof value === 'object') {
+    const o = value as Record<string, unknown>
+    return stringField(o.image_url) ?? stringField(o.url) ?? stringField(o.b64_json)
+  }
+  return undefined
+}
+
+/**
+ * Parse a multipart edit request into plain fields.
+ *
+ * Uses `formData()` rather than `parseBody()` because Hono's `parseBody`
+ * collapses repeated fields to the *last* value, which would silently drop
+ * every extra fusion image. `FormData.getAll` preserves them in order.
+ */
 async function readMultipart(c: Context): Promise<EditFields> {
-  const body = await c.req.parseBody()
+  const form = await c.req.formData()
+  const get = (name: string): unknown => form.get(name) ?? undefined
   const fields: EditFields = {
-    prompt: stringField(body.prompt),
-    model: stringField(body.model),
-    size: stringField(body.size),
-    negativePrompt: stringField(body.negative_prompt),
-    seed: numberField(body.seed),
-    steps: numberField(body.steps ?? body.num_inference_steps),
-    guidanceScale: numberField(body.guidance_scale ?? body.cfg_scale),
-    n: numberField(body.n),
+    prompt: stringField(get('prompt')),
+    model: stringField(get('model')),
+    size: stringField(get('size')),
+    negativePrompt: stringField(get('negative_prompt')),
+    seed: numberField(get('seed')),
+    steps: numberField(get('steps') ?? get('num_inference_steps')),
+    guidanceScale: numberField(get('guidance_scale') ?? get('cfg_scale')),
+    n: numberField(get('n')),
   }
 
-  const image = body.image
-  if (typeof image === 'string') {
-    fields.image = image
-  } else if (image instanceof Blob) {
-    fields.image = await blobToDataUrl(image)
-  } else if (Array.isArray(image)) {
-    const first: unknown = image[0]
-    if (first instanceof Blob) fields.image = await blobToDataUrl(first)
-    else if (typeof first === 'string') fields.image = first
+  // Input images arrive under several names depending on the client. The
+  // OpenAI SDK sends `image`; dsh-image-gen (the primary consumer) switches to
+  // `image[]` as soon as there is more than one image, and its alternative
+  // `formReferenceImages` format sends a single `reference_images` JSON field
+  // holding bare base64 strings. Missing any of these silently drops images.
+  const imageNames = ['image', 'image[]', 'images', 'images[]', 'image_2', 'image2']
+  const collected: string[] = []
+  for (const name of imageNames) {
+    const values: unknown[] = form.getAll(name)
+    for (const value of await Promise.all(values.map(toImageValue))) {
+      if (value) collected.push(value)
+    }
   }
+  collected.push(...(await readReferenceImages(form.get('reference_images'))))
+
+  fields.image = collected[0]
+  fields.imageExtras = collected.slice(1)
 
   // `mask` is intentionally not read: see the module docstring.
   return fields
 }
 
+/**
+ * Decode the `reference_images` JSON field: an array of bare base64 strings
+ * (no `data:` prefix), as sent by dsh-image-gen's formReferenceImages format.
+ */
+async function readReferenceImages(raw: unknown): Promise<string[]> {
+  const text = typeof raw === 'string' ? raw.trim() : ''
+  if (!text) return []
+  try {
+    const parsed: unknown = JSON.parse(text)
+    const list = Array.isArray(parsed) ? parsed : [parsed]
+    return list
+      .map((v) => (typeof v === 'string' ? v.trim() : ''))
+      .filter(Boolean)
+      .map((v) => (v.startsWith('data:') ? v : `data:image/png;base64,${v}`))
+  } catch {
+    // A malformed reference_images field is not worth failing the request
+    // over when a primary `image` part may still be usable.
+    return []
+  }
+}
+
+/** Convert a multipart part (Blob or string) into a data URL. */
+async function toImageValue(value: unknown): Promise<string | undefined> {
+  if (value instanceof Blob) return blobToDataUrl(value)
+  return stringField(value)
+}
+
 function readJson(body: Record<string, unknown>): EditFields {
   const imageField = body.image ?? body.image_url ?? body.init_image
+  const imageList = Array.isArray(imageField) ? imageField : [imageField]
+  // Extras come before `ordered` is split so `images`-only callers (such as
+  // dsh-image-gen's jsonImageUrlArray) still yield a primary image.
+  const extras = collectExtraImages(body)
+  const ordered = [...imageList.map(imageEntry), ...extras].filter(
+    (v): v is string => Boolean(v)
+  )
+  const primary = ordered[0]
   return {
     prompt: stringField(body.prompt),
     model: stringField(body.model),
@@ -103,7 +187,8 @@ function readJson(body: Record<string, unknown>): EditFields {
     steps: numberField(body.steps ?? body.num_inference_steps),
     guidanceScale: numberField(body.guidance_scale ?? body.cfg_scale),
     n: numberField(body.n),
-    image: stringField(imageField),
+    image: primary,
+    imageExtras: ordered.slice(1),
   }
 }
 
@@ -123,10 +208,18 @@ function assertEditCapable(resolved: { provider: string; model: string }): void 
   }
 }
 
+/**
+ * Edits are slower than generation, and multi-image fusion slower still:
+ * measured runs take ~70s for one image and 110-160s for two. The route
+ * timeout must exceed the channel's poll budget or the worker kills a task
+ * that is still rendering.
+ */
+const EDIT_TIMEOUT_MS = 240000
+
 export function registerOpenAIEditRoutes(app: Hono) {
   const v1 = new Hono().basePath('/v1')
 
-  v1.use('/*', timeout(120000))
+  v1.use('/*', timeout(EDIT_TIMEOUT_MS))
 
   v1.post('/images/edits', bodyLimit(EDIT_BODY_LIMIT), rateLimitPresets.generate, async (c) => {
     ensureCustomChannelsInitialized(
@@ -192,8 +285,10 @@ export function registerOpenAIEditRoutes(app: Hono) {
     }
 
     let image: string
+    let images: string[]
     try {
       image = await normalizeImageInput(fields.image)
+      images = await Promise.all((fields.imageExtras ?? []).map((src) => normalizeImageInput(src)))
     } catch (err) {
       return sendError(
         c,
@@ -225,6 +320,7 @@ export function registerOpenAIEditRoutes(app: Hono) {
             {
               prompt: fields.prompt!,
               image,
+              images,
               model: resolved.model,
               width,
               height,

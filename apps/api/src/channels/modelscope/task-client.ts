@@ -81,8 +81,19 @@ export async function submitTask(token: string, body: Record<string, unknown>): 
   return data.task_id
 }
 
-export async function pollForResult(token: string, taskId: string): Promise<string> {
-  const maxAttempts = modelscopeConfig.asyncMode?.maxPollAttempts ?? 35
+/**
+ * Poll until the async task finishes.
+ *
+ * `maxAttempts` defaults to the shared channel budget; the edit channel passes
+ * a larger one because edit and multi-image-fusion tasks render slower than
+ * plain generation (measured 110-160s for two input images).
+ */
+export async function pollForResult(
+  token: string,
+  taskId: string,
+  maxAttemptsOverride?: number
+): Promise<string> {
+  const maxAttempts = maxAttemptsOverride ?? modelscopeConfig.asyncMode?.maxPollAttempts ?? 35
   const pollIntervalMs = modelscopeConfig.asyncMode?.pollIntervalMs ?? 3000
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {

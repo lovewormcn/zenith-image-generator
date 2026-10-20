@@ -243,6 +243,197 @@ describe('GET /v1/models includes edit models', () => {
   })
 })
 
+describe('multi-image fusion', () => {
+  const app = createApp()
+  // The rate limiter is a module-level sliding window keyed on the token, so
+  // each case gets its own token to stay under the per-window limit.
+  let seq = 0
+  let auth = ''
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+    seq += 1
+    auth = `Bearer ms:fusion-token-${seq}`
+    if (modelscopeConfig.asyncMode) {
+      modelscopeConfig.asyncMode.pollIntervalMs = 0
+      modelscopeConfig.asyncMode.maxPollAttempts = 3
+    }
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  /** Pull the `image_url` the route sent upstream on the submit call. */
+  function submittedImageUrl(mockFetch: ReturnType<typeof vi.mocked<typeof fetch>>) {
+    const init = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined
+    const body = JSON.parse(String(init?.body)) as { image_url?: unknown }
+    return body.image_url
+  }
+
+  it('sends a bare string for a single image (unchanged behaviour)', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockUpstreamSuccess(mockFetch)
+
+    const form = new FormData()
+    form.set('model', 'ms/qwen-image-edit-2511')
+    form.set('prompt', 'watercolor')
+    form.set('image', new Blob([TINY_PNG_BYTES], { type: 'image/png' }), 'a.png')
+
+    const res = await app.request('/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: auth },
+      body: form,
+    })
+
+    expect(res.status).toBe(200)
+    const url = submittedImageUrl(mockFetch)
+    expect(typeof url).toBe('string')
+  })
+
+  it('sends an ordered array when `image` is repeated in multipart', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockUpstreamSuccess(mockFetch)
+
+    const form = new FormData()
+    form.set('model', 'ms/qwen-image-edit-2511')
+    form.set('prompt', 'put the card from image 2 in her hand')
+    form.append('image', new Blob([TINY_PNG_BYTES], { type: 'image/png' }), 'a.png')
+    form.append('image', new Blob([TINY_PNG_BYTES], { type: 'image/png' }), 'b.png')
+
+    const res = await app.request('/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: auth },
+      body: form,
+    })
+
+    expect(res.status).toBe(200)
+    const url = submittedImageUrl(mockFetch)
+    expect(Array.isArray(url)).toBe(true)
+    expect(url).toHaveLength(2)
+  })
+
+  it('accepts a `images` array in a JSON body', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockUpstreamSuccess(mockFetch)
+
+    const res = await app.request('/v1/images/edits', {
+      method: 'POST',
+      headers: {
+        Authorization: auth,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'ms/qwen-image-edit-2511',
+        prompt: 'fuse them',
+        image: `data:image/png;base64,${TINY_PNG_BASE64}`,
+        images: [`data:image/png;base64,${TINY_PNG_BASE64}`],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const url = submittedImageUrl(mockFetch)
+    expect(Array.isArray(url)).toBe(true)
+    expect(url).toHaveLength(2)
+  })
+
+  it('treats an `image` array in JSON as primary plus extras', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockUpstreamSuccess(mockFetch)
+
+    const res = await app.request('/v1/images/edits', {
+      method: 'POST',
+      headers: {
+        Authorization: auth,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'ms/qwen-image-edit-2511',
+        prompt: 'fuse them',
+        image: [
+          `data:image/png;base64,${TINY_PNG_BASE64}`,
+          `data:image/png;base64,${TINY_PNG_BASE64}`,
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const url = submittedImageUrl(mockFetch)
+    expect(Array.isArray(url)).toBe(true)
+    expect(url).toHaveLength(2)
+  })
+
+  // dsh-image-gen switches to `image[]` as soon as there is more than one
+  // image. Reading only `image` would silently send a single-image edit.
+  it("reads dsh-image-gen's `image[]` multipart field", async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockUpstreamSuccess(mockFetch)
+
+    const form = new FormData()
+    form.set('model', 'ms/qwen-image-edit-2511')
+    form.set('prompt', 'fuse them')
+    form.append('image[]', new Blob([TINY_PNG_BYTES], { type: 'image/png' }), 'reference-1.png')
+    form.append('image[]', new Blob([TINY_PNG_BYTES], { type: 'image/png' }), 'reference-2.png')
+
+    const res = await app.request('/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: auth },
+      body: form,
+    })
+
+    expect(res.status).toBe(200)
+    const url = submittedImageUrl(mockFetch)
+    expect(Array.isArray(url)).toBe(true)
+    expect(url).toHaveLength(2)
+  })
+
+  it("reads dsh-image-gen's `reference_images` base64 JSON field", async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockUpstreamSuccess(mockFetch)
+
+    const form = new FormData()
+    form.set('model', 'ms/qwen-image-edit-2511')
+    form.set('prompt', 'fuse them')
+    form.set('reference_images', JSON.stringify([TINY_PNG_BASE64, TINY_PNG_BASE64]))
+
+    const res = await app.request('/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: auth },
+      body: form,
+    })
+
+    expect(res.status).toBe(200)
+    const url = submittedImageUrl(mockFetch)
+    expect(Array.isArray(url)).toBe(true)
+    expect(url).toHaveLength(2)
+  })
+
+  it("reads dsh-image-gen's `jsonImageUrlArray` object entries", async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockUpstreamSuccess(mockFetch)
+
+    const dataUrl = `data:image/png;base64,${TINY_PNG_BASE64}`
+    const res = await app.request('/v1/images/edits', {
+      method: 'POST',
+      headers: {
+        Authorization: auth,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'ms/qwen-image-edit-2511',
+        prompt: 'fuse them',
+        images: [{ image_url: dataUrl }, { image_url: dataUrl }],
+        response_format: 'url',
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const url = submittedImageUrl(mockFetch)
+    expect(Array.isArray(url)).toBe(true)
+    expect(url).toHaveLength(2)
+  })
+})
+
 describe('resolveModel: provider prefixes are the routing contract', () => {
   it.each([
     ['ms/qwen-image-edit-2511', 'Qwen/Qwen-Image-Edit-2511'],
@@ -266,3 +457,4 @@ describe('resolveModel: provider prefixes are the routing contract', () => {
     expect(resolveModel(undefined).provider).toBe('huggingface')
   })
 })
+
