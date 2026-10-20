@@ -215,11 +215,12 @@ function assertEditCapable(resolved: { provider: string; model: string }): void 
 
 /**
  * Edits are slower than generation, and multi-image fusion slower still:
- * measured runs take ~70s for one image and 110-160s for two. The route
+ * measured runs take ~70s for one image and 110-160s for two on the domestic
+ * endpoint, and ~150s for a single edit on the global fallback. The route
  * timeout must exceed the channel's poll budget or the worker kills a task
- * that is still rendering.
+ * that is still rendering — the global channel's budget is 195s.
  */
-const EDIT_TIMEOUT_MS = 240000
+const EDIT_TIMEOUT_MS = 300000
 
 export function registerOpenAIEditRoutes(app: Hono) {
   const v1 = new Hono().basePath('/v1')
