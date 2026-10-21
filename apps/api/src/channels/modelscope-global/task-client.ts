@@ -54,6 +54,20 @@ function parseModelScopeGlobalError(status: number, data: ErrorResponse): Error 
     return Errors.authExpired(PROVIDER)
   }
 
+  // See the domestic channel's task-client: an unknown model or LoRA id is
+  // reported as HTTP 500 with "Model Exception" / "模型不存在", never a 404.
+  if (
+    message.includes('模型不存在') ||
+    /model exception/i.test(message) ||
+    /apiInferModelDownload/i.test(message) ||
+    /model not exist/i.test(message)
+  ) {
+    return Errors.invalidParams(
+      'model',
+      `${PROVIDER} does not expose this model or LoRA adapter for API inference: ${message}`
+    )
+  }
+
   return Errors.providerError(PROVIDER, message)
 }
 

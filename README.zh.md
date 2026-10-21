@@ -158,6 +158,50 @@ HuggingFace，在本接口会被拒绝。
 注意：Qwen 编辑模型可能把输出重新排版成与输入不同的画幅比例（实测 4:3 输入可能返回
 3:5 竖图）。如果构图必须保持不变，请在提示词里明确要求。
 
+### LoRA 模型
+
+ModelScope 的 LoRA 通过同一个 `loras` 请求字段暴露，两个端点都会转发。文生图和编辑模型都支持：
+
+```bash
+# 单个 LoRA
+curl -X POST https://your-project.pages.dev/v1/images/edits \
+  -H "Authorization: Bearer ms:your-modelscope-token" \
+  -F "model=ms/qwen-image-edit-2511" \
+  -F 'loras=valiantcat/Qwen-Image-Edit-2509-photous' \
+  -F "prompt=应用柔和胶片质感，保持主体不变" \
+  -F "image=@input.png"
+
+# 带权重、多个 LoRA（最多 6 个）
+curl -X POST https://your-project.pages.dev/v1/images/generations \
+  -H "Authorization: Bearer ms:your-modelscope-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "ms/flux-2",
+    "prompt": "portrait of a girl, soft studio light",
+    "loras": { "owner/style-a": 0.6, "owner/style-b": 0.4 }
+  }'
+```
+
+`loras` 接受的写法：单个 id 字符串、`id@0.8` / `id:0.8`、逗号分隔列表、数组、
+`id -> 权重` 的对象，或以上任意形式的 JSON 字符串（multipart 客户端会把字典转成字符串，
+这里一并处理）。只给列表不给权重时权重平分；混用"有权重"和"无权重"会被拒绝。
+上限 6 个——这是上游的限制。
+
+另外提供**模型名后缀**写法，给只能传模型 id 的客户端用（部分中转会重建请求体、丢掉未知字段）：
+
+```
+model: "ms/qwen-image-edit-2511+valiantcat/Qwen-Image-Edit-2509-photous@0.8"
+```
+
+显式 `loras` 字段优先于后缀。后缀会在路由前被剥离，所以 provider 前缀和别名照常解析。
+
+两个上游行为值得注意，均已对真实接口验证：
+
+- **与基础模型不匹配的 LoRA 会被静默忽略。** 请求成功，返回的图与不加 LoRA 时逐像素相同——
+  不报错也不警告。LoRA 必须与基础模型严格对应。
+- **未开放 API 推理的 LoRA 会返回 HTTP 500**，不是 404。本项目把它映射为
+  `400 INVALID_PARAMS`，并在消息里指出是模型/LoRA 的问题。
+
 ## 安全性
 
 ### API Key 如何被保护

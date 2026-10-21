@@ -1,3 +1,5 @@
+import type { NormalizedLoras } from './lora'
+
 export interface ModelInfo {
   id: string
   name: string
@@ -47,7 +49,8 @@ export interface ImageRequest {
   steps?: number
   guidanceScale?: number
   seed?: number
-  loras?: unknown
+  /** LoRA adapters, already normalized by `core/lora.ts`. */
+  loras?: NormalizedLoras
 }
 
 export interface ImageResult {
@@ -79,6 +82,8 @@ export interface ImageEditRequest {
   steps?: number
   guidanceScale?: number
   negativePrompt?: string
+  /** LoRA adapters, already normalized by `core/lora.ts`. */
+  loras?: NormalizedLoras
 }
 
 export interface LLMRequest {

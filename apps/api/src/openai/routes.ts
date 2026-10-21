@@ -6,6 +6,7 @@ import {
   MODELSCOPE_GLOBAL_EDIT_MODELS,
   MODELSCOPE_GLOBAL_T2I_MODELS,
 } from '../channels/modelscope-global/known-models'
+import { splitLoraSuffix } from '../core/lora'
 import { parseTokens, runWithTokenRotation } from '../core/token-manager'
 import { bodyLimit, rateLimitPresets, sendError, timeout } from '../middleware'
 import { convertRequest, convertResponse, parseBearerToken } from './adapter'
@@ -162,7 +163,17 @@ export function registerOpenAIRoutes(app: Hono) {
       )
     }
 
-    const { channelId, model } = resolveImageChannel(body.model)
+    // Split a `+lora` suffix before routing: the suffix is not part of the
+    // upstream model id, so it would otherwise defeat prefix/alias matching.
+    // Parsing happens here so an unusable suffix is a 400, not a 500.
+    let modelSplit: ReturnType<typeof splitLoraSuffix>
+    try {
+      modelSplit = splitLoraSuffix(body.model)
+    } catch (err) {
+      return sendError(c, err)
+    }
+
+    const { channelId, model } = resolveImageChannel(modelSplit.base)
     const auth = parseBearerToken(c.req.header('Authorization'))
 
     if (auth.providerHint && auth.providerHint !== channelId) {
@@ -193,10 +204,13 @@ export function registerOpenAIRoutes(app: Hono) {
 
     try {
       const internalReq = convertRequest(body)
+      // An explicit `loras` field wins over a model-name suffix; the suffix is
+      // the fallback for clients that can only send a model id.
+      const loras = internalReq.loras ?? modelSplit.loras
       const result = await runWithTokenRotation(
         channel.id,
         tokens,
-        (token) => imageChannel.generate({ ...internalReq, model: resolvedModel }, token),
+        (token) => imageChannel.generate({ ...internalReq, loras, model: resolvedModel }, token),
         { allowAnonymous }
       )
       // Convert to OpenAI-compatible response. Pass the request origin so

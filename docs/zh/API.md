@@ -60,10 +60,16 @@ Provider token 前缀：
   "steps": 9,
   "seed": 12345,
   "guidance_scale": 7.5,
+  "loras": { "owner/style-a": 0.6, "owner/style-b": 0.4 },
   "n": 1,
   "response_format": "url"
 }
 ```
+
+`loras` 为可选字段，只会转发给 ModelScope。支持单个 id（`"owner/name"`）、
+`"owner/name@0.8"`、逗号分隔列表、数组、`id -> 权重` 对象，或以上任意形式的
+JSON 字符串。最多 6 个。也可以改用 `model` 上的 `+lora@weight` 后缀（适合无法传
+额外字段的客户端），显式 `loras` 字段优先。与基础模型不匹配的 LoRA 会被上游静默忽略。
 
 响应：
 

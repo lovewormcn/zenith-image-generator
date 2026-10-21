@@ -60,10 +60,18 @@ Request body:
   "steps": 9,
   "seed": 12345,
   "guidance_scale": 7.5,
+  "loras": { "owner/style-a": 0.6, "owner/style-b": 0.4 },
   "n": 1,
   "response_format": "url"
 }
 ```
+
+`loras` is optional and only forwarded to ModelScope. It accepts a bare id
+(`"owner/name"`), `"owner/name@0.8"`, a comma-separated list, an array, an
+object of `id -> weight`, or a JSON string of any of those. At most 6 adapters.
+A `+lora@weight` suffix on `model` is an alternative for clients that cannot
+send extra fields; an explicit `loras` field wins. A LoRA trained for a
+different base model is silently ignored by the upstream.
 
 Response:
 

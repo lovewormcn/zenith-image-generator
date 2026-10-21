@@ -31,6 +31,19 @@ export interface OpenAIModelsListResponse {
 
 // -------- Images --------
 
+/**
+ * LoRA adapter selection, mirroring ModelScope's `loras` request field.
+ *
+ * - single adapter: `"owner/lora-name"`
+ * - weighted: `{ "owner/lora-name": 0.6 }`
+ * - list: `["owner/a", "owner/b"]` (weights split evenly)
+ *
+ * ModelScope accepts at most 6 adapters and documents the weights as summing
+ * to 1.0. A LoRA only has an effect when it was trained for the exact base
+ * model being requested; on a mismatched base it is silently ignored.
+ */
+export type LoraSpec = string | string[] | Record<string, number>
+
 export interface OpenAIImageRequest {
   model?: string
   prompt: string
@@ -47,6 +60,8 @@ export interface OpenAIImageRequest {
   seed?: number
   cfg_scale?: number
   guidance_scale?: number
+  /** LoRA adapters, forwarded verbatim to ModelScope. */
+  loras?: LoraSpec
 }
 
 /**
@@ -61,6 +76,8 @@ export interface OpenAIImageEditRequest {
   image: Blob | string
   n?: number
   size?: string
+  /** LoRA adapters, forwarded verbatim to ModelScope. */
+  loras?: LoraSpec
 }
 
 export interface OpenAIImageResponse {

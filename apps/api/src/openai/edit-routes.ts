@@ -18,6 +18,7 @@ import {
   MODELSCOPE_EDIT_MODELS,
 } from '../channels/modelscope/known-models'
 import { MODELSCOPE_GLOBAL_EDIT_MODELS } from '../channels/modelscope-global/known-models'
+import { normalizeLoras, splitLoraSuffix } from '../core/lora'
 import { parseTokens, runWithTokenRotation } from '../core/token-manager'
 import { bodyLimit, rateLimitPresets, sendError, timeout } from '../middleware'
 import { convertResponse, parseBearerToken, parseSize } from './adapter'
@@ -39,6 +40,8 @@ interface EditFields {
   negativePrompt?: string
   guidanceScale?: number
   n?: number
+  /** Raw client value; normalized by `core/lora.ts` before it is forwarded. */
+  loras?: unknown
 }
 
 function getRequestOrigin(c: Context): string {
@@ -118,6 +121,9 @@ async function readMultipart(c: Context): Promise<EditFields> {
     steps: numberField(get('steps') ?? get('num_inference_steps')),
     guidanceScale: numberField(get('guidance_scale') ?? get('cfg_scale')),
     n: numberField(get('n')),
+    // Multipart values are always strings; a dictionary arrives JSON-encoded,
+    // which `normalizeLoras` understands.
+    loras: get('loras') ?? get('lora'),
   }
 
   // Input images arrive under several names depending on the client. The
@@ -186,6 +192,7 @@ function readJson(body: Record<string, unknown>): EditFields {
     steps: numberField(body.steps ?? body.num_inference_steps),
     guidanceScale: numberField(body.guidance_scale ?? body.cfg_scale),
     n: numberField(body.n),
+    loras: body.loras ?? body.lora,
     image: primary,
     imageExtras: ordered.slice(1),
   }
@@ -266,13 +273,26 @@ export function registerOpenAIEditRoutes(app: Hono) {
       return sendError(c, Errors.invalidParams('n', 'Only n=1 is supported'))
     }
 
-    const resolved = resolveModel(fields.model?.trim() || `ms/${MODELSCOPE_DEFAULT_EDIT_MODEL}`)
+    // Split a `+lora` suffix off the model id before resolving: the suffix is
+    // not part of the upstream id and would otherwise defeat prefix/alias
+    // matching. Parsing happens here so a bad value is a 400, not a 500.
+    let modelSplit: ReturnType<typeof splitLoraSuffix>
+    let loras: ReturnType<typeof normalizeLoras>
+    try {
+      modelSplit = splitLoraSuffix(fields.model)
+      // An explicit `loras` field wins over a model-name suffix; the suffix is
+      // the fallback for clients that can only send a model id.
+      loras = normalizeLoras(fields.loras) ?? modelSplit.loras
+    } catch (err) {
+      return sendError(c, err)
+    }
+
+    const resolved = resolveModel(modelSplit.base || `ms/${MODELSCOPE_DEFAULT_EDIT_MODEL}`)
     try {
       assertEditCapable(resolved)
     } catch (err) {
       return sendError(c, err)
     }
-
     const auth = parseBearerToken(c.req.header('Authorization'))
     if (auth.providerHint && auth.providerHint !== resolved.provider) {
       return sendError(
@@ -334,6 +354,7 @@ export function registerOpenAIEditRoutes(app: Hono) {
               steps: fields.steps,
               negativePrompt: fields.negativePrompt,
               guidanceScale: fields.guidanceScale,
+              loras,
             },
             token
           ),

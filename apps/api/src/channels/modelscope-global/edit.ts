@@ -37,11 +37,12 @@ export const modelscopeGlobalEdit: ImageEditCapability = {
     if (request.steps !== undefined) body.steps = request.steps
     if (request.negativePrompt) body.negative_prompt = request.negativePrompt
     if (request.guidanceScale !== undefined) body.guidance = request.guidanceScale
+    if (request.loras) body.loras = request.loras
 
     const taskId = await submitTask(t, body)
-    // Slower than the domestic endpoint (~150s measured): 65 x 3s = 195s,
-    // still inside the edit route's 240s timeout.
-    const imageUrl = await pollForResult(t, taskId, 65)
+    // Slower than the domestic endpoint (~150s measured): 95 x 3s = 285s,
+    // still inside the edit route's 300s timeout.
+    const imageUrl = await pollForResult(t, taskId, 95)
     return { url: imageUrl, seed, model }
   },
 }

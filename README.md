@@ -158,6 +158,55 @@ Note: the Qwen edit models may re-compose the output to a different aspect ratio
 than the input (e.g. a 4:3 source can come back as a 3:5 portrait), so ask for
 "keep the composition" explicitly if framing matters.
 
+### LoRA Adapters
+
+ModelScope exposes its LoRA catalogue through the same `loras` request field, and
+both endpoints forward it. Works for text-to-image **and** edit models:
+
+```bash
+# Single adapter
+curl -X POST https://your-project.pages.dev/v1/images/edits \
+  -H "Authorization: Bearer ms:your-modelscope-token" \
+  -F "model=ms/qwen-image-edit-2511" \
+  -F 'loras=valiantcat/Qwen-Image-Edit-2509-photous' \
+  -F "prompt=apply a soft film look, keep the subject" \
+  -F "image=@input.png"
+
+# Weighted, several adapters (at most 6)
+curl -X POST https://your-project.pages.dev/v1/images/generations \
+  -H "Authorization: Bearer ms:your-modelscope-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "ms/flux-2",
+    "prompt": "portrait of a girl, soft studio light",
+    "loras": { "owner/style-a": 0.6, "owner/style-b": 0.4 }
+  }'
+```
+
+Accepted shapes for `loras`: a bare id string, `id@0.8` / `id:0.8`, a
+comma-separated list, an array, an object of `id -> weight`, or a JSON string of
+any of those (multipart clients stringify dictionaries, so this is handled).
+A list without weights splits the weight evenly; mixing weighted and unweighted
+entries is rejected. At most 6 adapters — the upstream limit.
+
+There is also a **model-name suffix** form, for clients that can only send a
+model id (some relays rebuild the body and drop unknown fields):
+
+```
+model: "ms/qwen-image-edit-2511+valiantcat/Qwen-Image-Edit-2509-photous@0.8"
+```
+
+An explicit `loras` field always wins over the suffix. The suffix is stripped
+before routing, so provider prefixes and aliases still resolve.
+
+Two upstream behaviours worth knowing, both verified against the live API:
+
+- **A LoRA trained for a different base model is silently ignored.** The request
+  succeeds and returns an image pixel-identical to a run without the adapter —
+  no error, no warning. The adapter must match the exact base model.
+- **An adapter that is not exposed for API inference fails with HTTP 500**, not
+  404. That is mapped here to a `400 INVALID_PARAMS` naming the model/LoRA.
+
 ## Documentation
 
 | Doc                                       | Description                          |

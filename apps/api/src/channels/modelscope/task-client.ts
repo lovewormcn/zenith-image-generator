@@ -53,6 +53,22 @@ function parseModelScopeError(status: number, data: ModelScopeErrorResponse): Er
     return Errors.authExpired(provider)
   }
 
+  // An unknown model or LoRA id comes back as HTTP 500 with this text, not as
+  // a 404 — verified live: a LoRA that is not exposed for API inference fails
+  // with "apiInferModelDownload call failed: ... [Model Exception] 模型不存在".
+  // Surface it as a client error so callers do not retry a permanently-bad id.
+  if (
+    message.includes('模型不存在') ||
+    /model exception/i.test(message) ||
+    /apiInferModelDownload/i.test(message) ||
+    /model not exist/i.test(message)
+  ) {
+    return Errors.invalidParams(
+      'model',
+      `${provider} does not expose this model or LoRA adapter for API inference: ${message}`
+    )
+  }
+
   return Errors.providerError(provider, message)
 }
 

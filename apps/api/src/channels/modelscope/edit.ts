@@ -37,10 +37,16 @@ export const modelscopeEdit: ImageEditCapability = {
     if (request.steps !== undefined) body.steps = request.steps
     if (request.negativePrompt) body.negative_prompt = request.negativePrompt
     if (request.guidanceScale !== undefined) body.guidance = request.guidanceScale
+    // LoRA adapters work on the edit path too (verified live): the adapter must
+    // have been trained for this exact base model, otherwise the upstream
+    // accepts it and silently ignores it.
+    if (request.loras) body.loras = request.loras
 
     const taskId = await submitTask(t, body)
-    // 60 x 3s = 180s budget, inside the edit route's 240s timeout.
-    const imageUrl = await pollForResult(t, taskId, 60)
+    // 95 x 3s = 285s, inside the edit route's 300s timeout. The previous 180s
+    // budget killed real renders: a LoRA edit was measured at 188s, so the
+    // route's own ceiling must be the binding constraint, not the poll loop.
+    const imageUrl = await pollForResult(t, taskId, 95)
     return { url: imageUrl, seed, model }
   },
 }

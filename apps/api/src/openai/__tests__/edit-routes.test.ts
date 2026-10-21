@@ -552,3 +552,226 @@ describe('ModelScope Global as an edit fallback', () => {
     expect(ids).not.toContain('msg/flux-1-krea-dev')
   })
 })
+
+/** Read the JSON body of the nth upstream call made by a mocked fetch. */
+function sentBody(mockFetch: ReturnType<typeof vi.mocked<typeof fetch>>, index = 0) {
+  const call = mockFetch.mock.calls[index]
+  return JSON.parse((call?.[1] as RequestInit).body as string) as Record<string, unknown>
+}
+
+describe('LoRA adapters', () => {
+  const app = createApp()
+  // A unique token per test keeps each request in its own rate-limit bucket
+  // (the limiter keys on the bearer token, 10 requests/min).
+  let seq = 0
+  let auth = ''
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+    seq += 1
+    auth = `Bearer ms:lora-token-${seq}`
+    if (modelscopeConfig.asyncMode) {
+      modelscopeConfig.asyncMode.pollIntervalMs = 0
+      modelscopeConfig.asyncMode.maxPollAttempts = 3
+    }
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('forwards a multipart loras field as a JSON string to the upstream', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockUpstreamSuccess(mockFetch)
+
+    const form = new FormData()
+    form.set('model', 'ms/qwen-image-edit-2511')
+    form.set('prompt', 'apply the style')
+    form.set('image', new Blob([TINY_PNG_BYTES], { type: 'image/png' }), 'in.png')
+    // dsh-image-gen stringifies extra body values, so a dict arrives as text.
+    form.set('loras', '{"valiantcat/Qwen-Image-Edit-2509-photous":1}')
+
+    const res = await app.request('/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: auth },
+      body: form,
+    })
+
+    expect(res.status).toBe(200)
+    expect(sentBody(mockFetch).loras).toEqual({
+      'valiantcat/Qwen-Image-Edit-2509-photous': 1,
+    })
+  })
+
+  it('forwards a JSON loras object', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockUpstreamSuccess(mockFetch)
+
+    const res = await app.request('/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'ms/qwen-image-edit-2511',
+        prompt: 'apply the style',
+        image: TINY_PNG_BASE64,
+        loras: { 'owner/a': 0.6, 'owner/b': 0.4 },
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(sentBody(mockFetch).loras).toEqual({ 'owner/a': 0.6, 'owner/b': 0.4 })
+  })
+
+  it('accepts a LoRA suffix on the model id', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockUpstreamSuccess(mockFetch)
+
+    const res = await app.request('/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'ms/qwen-image-edit-2511+valiantcat/photo@0.8',
+        prompt: 'apply the style',
+        image: TINY_PNG_BASE64,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const sent = sentBody(mockFetch)
+    // The suffix must be stripped: it is not part of the upstream model id.
+    expect(sent.model).toBe('Qwen/Qwen-Image-Edit-2511')
+    expect(sent.loras).toEqual({ 'valiantcat/photo': 0.8 })
+  })
+
+  it('lets an explicit loras field win over the model suffix', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockUpstreamSuccess(mockFetch)
+
+    const res = await app.request('/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'ms/qwen-image-edit-2511+owner/fromModel',
+        prompt: 'apply the style',
+        image: TINY_PNG_BASE64,
+        loras: 'owner/fromField',
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(sentBody(mockFetch).loras).toBe('owner/fromField')
+  })
+
+  it('rejects more than six adapters before calling the upstream', async () => {
+    const mockFetch = vi.mocked(fetch)
+
+    const res = await app.request('/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'ms/qwen-image-edit-2511',
+        prompt: 'apply the style',
+        image: TINY_PNG_BASE64,
+        loras: Array.from({ length: 7 }, (_, i) => `owner/lora${i}`),
+      }),
+    })
+
+    expect(res.status).toBe(400)
+    const json = (await res.json()) as { error: { code: string; param?: string } }
+    expect(json.error.code).toBe(ApiErrorCode.INVALID_PARAMS)
+    expect(json.error.param).toBe('loras')
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('turns an upstream "model does not exist" into a 400 with a clear hint', async () => {
+    const mockFetch = vi.mocked(fetch)
+    // Verified live: an unexposed LoRA id fails the submit with HTTP 500 and
+    // this message, not with a 404.
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => ({
+        errors: {
+          message: 'apiInferModelDownload call failed: Model Exception: 模型不存在',
+        },
+      }),
+    } as Response)
+
+    const res = await app.request('/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'ms/qwen-image-edit-2511',
+        prompt: 'apply the style',
+        image: TINY_PNG_BASE64,
+        loras: 'someone/not-exposed-lora',
+      }),
+    })
+
+    expect(res.status).toBe(400)
+    const json = (await res.json()) as { error: { code: string; message: string } }
+    expect(json.error.code).toBe(ApiErrorCode.INVALID_PARAMS)
+    expect(json.error.message).toMatch(/does not expose this model or LoRA adapter/)
+  })
+})
+
+describe('LoRA adapters on /v1/images/generations', () => {
+  const app = createApp()
+  let seq = 0
+  let auth = ''
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+    seq += 1
+    auth = `Bearer ms:gen-lora-token-${seq}`
+    if (modelscopeConfig.asyncMode) {
+      modelscopeConfig.asyncMode.pollIntervalMs = 0
+      modelscopeConfig.asyncMode.maxPollAttempts = 3
+    }
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('forwards a text-to-image loras field to the upstream', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockUpstreamSuccess(mockFetch)
+
+    const res = await app.request('/v1/images/generations', {
+      method: 'POST',
+      headers: { Authorization: auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'ms/z-image-turbo',
+        prompt: 'a portrait',
+        size: '1024x1024',
+        loras: 'ChaosMY/MYkawaii4MJ',
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const sent = sentBody(mockFetch)
+    expect(sent.model).toBe('Tongyi-MAI/Z-Image-Turbo')
+    expect(sent.loras).toBe('ChaosMY/MYkawaii4MJ')
+  })
+
+  it('accepts a LoRA suffix on a generation model id', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockUpstreamSuccess(mockFetch)
+
+    const res = await app.request('/v1/images/generations', {
+      method: 'POST',
+      headers: { Authorization: auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'ms/flux-2+owner/style@0.5',
+        prompt: 'a portrait',
+        size: '1024x1024',
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const sent = sentBody(mockFetch)
+    expect(sent.model).toBe('black-forest-labs/FLUX.2-dev')
+    expect(sent.loras).toEqual({ 'owner/style': 0.5 })
+  })
+})

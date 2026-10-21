@@ -6,12 +6,13 @@ import {
   validateSteps,
   wrapGradioUrl,
 } from '@z-image/shared'
+import { normalizeLoras } from '../core/lora'
 import type { ImageRequest, ImageResult } from '../core/types'
 import type { OpenAIImageRequest, OpenAIImageResponse } from './types'
 
 export type OpenAIConvertedRequest = Pick<
   ImageRequest,
-  'prompt' | 'negativePrompt' | 'width' | 'height' | 'steps' | 'seed' | 'guidanceScale'
+  'prompt' | 'negativePrompt' | 'width' | 'height' | 'steps' | 'seed' | 'guidanceScale' | 'loras'
 >
 
 export function parseSize(size?: string): { width: number; height: number } {
@@ -86,6 +87,9 @@ export function convertRequest(req: OpenAIImageRequest): OpenAIConvertedRequest 
     steps,
     seed: req.seed,
     guidanceScale: req.guidance_scale ?? req.cfg_scale,
+    // Throws a 400-shaped ApiError on an unusable value, which is what we want:
+    // a bad LoRA list should fail fast instead of reaching the upstream.
+    loras: normalizeLoras(req.loras),
   }
 }
 
